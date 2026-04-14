@@ -1,0 +1,12 @@
+# Environments
+.env
+venv/
+__pycache__/
+
+# Large Weights
+*.bin
+*.safetensors
+*.h5
+
+# Data
+data/raw_documents/
