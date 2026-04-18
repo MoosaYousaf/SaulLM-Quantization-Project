@@ -1,0 +1,27 @@
+MUTUAL NON-DISCLOSURE AGREEMENT
+
+This Mutual Non-Disclosure Agreement (the "Agreement") is entered into as of April 18, 2026, by and between 
+Apex Quantitative Strategies LLC ("Disclosing Party") and the Undersigned Evaluator ("Receiving Party"). 
+
+WHEREAS, the Disclosing Party has developed proprietary quantitative trading models, specifically involving 
+algorithmic execution, statistical arbitrage, and mean reversion strategies optimized for commodity futures 
+and index markets. The Parties wish to explore a potential business relationship regarding the product management 
+and institutional deployment of these proprietary systems (the "Purpose").
+
+1. DEFINITION OF CONFIDENTIAL INFORMATION. "Confidential Information" shall mean any and all technical and non-technical 
+information provided by the Disclosing Party, including but not limited to: source code, order flow analysis parameters, 
+Depth of Market (DOM) integration logic, footprint analysis thresholds, backtesting datasets, Sharpe and Sortino ratio 
+evaluations, and strategic business plans. Confidential Information shall not include information that is currently in 
+the public domain or becomes publicly known through no fault of the Receiving Party.
+
+2. OBLIGATIONS OF RECEIVING PARTY. The Receiving Party agrees to hold and maintain the Confidential Information in 
+strictest confidence for the sole and exclusive benefit of the Disclosing Party. The Receiving Party shall restrict 
+access to Confidential Information to employees, contractors, and third parties as is reasonably required to fulfill 
+the Purpose, and shall not, without prior written approval of Disclosing Party, use for Receiving Party's own benefit, 
+publish, copy, or otherwise disclose to others, or permit the use by others for their benefit or to the detriment of 
+Disclosing Party, any Confidential Information. 
+
+3. TERM AND GOVERNING LAW. The nondisclosure provisions of this Agreement shall survive the termination of this Agreement 
+and Receiving Party's duty to hold Confidential Information in confidence shall remain in effect until the Confidential 
+Information no longer qualifies as a trade secret. This Agreement shall be governed by and construed in accordance with 
+the laws of the State of Georgia, without regard to its conflict of law principles.
