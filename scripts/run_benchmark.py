@@ -9,7 +9,7 @@ CSV_FILE = "outputs/metrics_log.csv"
 
 def benchmark_model(precision: str, prompt: str):
     tracker = PerformanceTracker()
-    model_id = "Equall/SaulLM-7B" 
+    model_id = "Equall/Saul-7B-Instruct-v1"
     
     print(f"\n[{precision.upper()}] Loading tokenizer and model...")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
