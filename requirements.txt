@@ -1,0 +1,9 @@
+# Deep Learning Core
+torch>=2.0.0
+
+# Hugging Face Ecosystem
+transformers>=4.35.0
+accelerate>=0.24.1
+
+# Quantization Engine (Crucial for 8-bit & 4-bit)
+bitsandbytes>=0.41.1
