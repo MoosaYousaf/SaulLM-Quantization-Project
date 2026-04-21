@@ -1,5 +1,6 @@
 import os
 import csv
+import gc
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from src.telemetry.metrics import PerformanceTracker
@@ -7,7 +8,9 @@ from src.telemetry.metrics import PerformanceTracker
 os.makedirs("outputs", exist_ok=True)
 CSV_FILE = "outputs/metrics_log.csv"
 
-def benchmark_model(precision: str, prompt: str):
+def benchmark_model(precision: str, prompt: str): 
+    gc.collect()
+    torch.cuda.empty_cache()
     tracker = PerformanceTracker()
     model_id = "Equall/Saul-7B-Instruct-v1"
     
@@ -18,14 +21,16 @@ def benchmark_model(precision: str, prompt: str):
         model = AutoModelForCausalLM.from_pretrained(
             model_id, 
             torch_dtype=torch.float16, 
-            device_map="auto"
+            device_map="auto",
+            low_cpu_mem_usage=True  # <-- ADD THIS
         )
     elif precision == "8-bit":
         quantization_config = BitsAndBytesConfig(load_in_8bit=True)
         model = AutoModelForCausalLM.from_pretrained(
             model_id, 
             quantization_config=quantization_config, 
-            device_map="auto"
+            device_map="auto",
+            low_cpu_mem_usage=True  # <-- ADD THIS
         )
     elif precision == "4-bit":
         quantization_config = BitsAndBytesConfig(
@@ -35,7 +40,8 @@ def benchmark_model(precision: str, prompt: str):
         model = AutoModelForCausalLM.from_pretrained(
             model_id, 
             quantization_config=quantization_config, 
-            device_map="auto"
+            device_map="auto",
+            low_cpu_mem_usage=True  # <-- ADD THIS
         )
     else:
         raise ValueError("Unsupported precision.")
