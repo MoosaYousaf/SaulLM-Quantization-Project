@@ -65,11 +65,25 @@ def benchmark_model(precision: str, prompt: str):
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+    print(f"[{precision.upper()}] Run complete.")
+    
+    # --- AGGRESSIVE MEMORY WIPING ---
+    del model
+    del tokenizer
+    del inputs
+    if 'outputs' in locals():
+        del outputs
+        
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    # --------------------------------
+
     return tracker.phases
 
 def main():
     prompt = "Review this contract clause for indemnification liabilities: The Contractor agrees to indemnify and hold harmless the Client from any claims resulting from the Contractor's negligence."
-    precisions = ["baseline", "8-bit", "4-bit"]
+    precisions = ["4-bit", "8-bit", "baseline"]
     
     with open(CSV_FILE, mode='w', newline='') as file:
         writer = csv.writer(file)
