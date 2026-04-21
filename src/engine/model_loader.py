@@ -43,8 +43,12 @@ def load_8bit(model_id=MODEL_ID, device_map="auto"):
     print(f"[8-bit] Loading with LLM.int8() quantization ...")
     tokenizer = load_tokenizer(model_id)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, quantization_config=get_8bit_config(),
-        device_map=device_map, torch_dtype=torch.float16, trust_remote_code=True
+        model_id, 
+        quantization_config=get_8bit_config(),
+        device_map=device_map, 
+        torch_dtype=torch.float16, 
+        trust_remote_code=True,
+        low_cpu_mem_usage=True  # <-- THIS PREVENTS THE RAM CRASH
     )
     model.eval()
     _print_param_count(model, "8-bit")
@@ -54,8 +58,11 @@ def load_4bit(model_id=MODEL_ID, device_map="auto"):
     print(f"[4-bit] Loading with NF4 4-bit quantization ...")
     tokenizer = load_tokenizer(model_id)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, quantization_config=get_4bit_config(),
-        device_map=device_map, trust_remote_code=True
+        model_id, 
+        quantization_config=get_4bit_config(),
+        device_map=device_map, 
+        trust_remote_code=True,
+        low_cpu_mem_usage=True  # <-- THIS PREVENTS THE RAM CRASH
     )
     model.eval()
     _print_param_count(model, "4-bit")
