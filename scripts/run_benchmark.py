@@ -30,7 +30,8 @@ def benchmark_model(precision: str, prompt: str):
             model_id, 
             quantization_config=quantization_config, 
             device_map="auto",
-            low_cpu_mem_usage=True  # <-- ADD THIS
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16  # <-- CRITICAL FIX
         )
     elif precision == "4-bit":
         quantization_config = BitsAndBytesConfig(
@@ -41,7 +42,8 @@ def benchmark_model(precision: str, prompt: str):
             model_id, 
             quantization_config=quantization_config, 
             device_map="auto",
-            low_cpu_mem_usage=True  # <-- ADD THIS
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16  # <-- CRITICAL FIX
         )
     else:
         raise ValueError("Unsupported precision.")
