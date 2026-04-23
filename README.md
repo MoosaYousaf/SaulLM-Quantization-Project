@@ -129,20 +129,3 @@ You can run it inside the notebook (included cell) to report:
 In most transformer generation workloads, **inference stage** should dominate latency, while pre/post stages are much smaller. Confirm this from `outputs/metrics_log.csv` and include chart in your slides.
 
 ---
-
-## 7) Suggested improvements for your report
-
-You can discuss improvements along these axes:
-- **Speed**: quantization, smaller `max_new_tokens`, batching strategies.
-- **Memory/model size**: 8-bit/4-bit deployment.
-- **Accuracy**: prompt engineering, post-processing guards, better rubric/eval sets.
-- **Cost**: choosing precision mode per hardware budget.
-
----
-
-## 8) Academic and repository requirements checklist
-
-- Every team member should host code in their own GitHub repository/fork.
-- If starting from existing public code, include clear attribution/link to original source in your repo.
-- Keep this README and notebook as reproducible, step-by-step run instructions.
-- Demonstrate with your own data file(s) in addition to the provided mock NDA.
