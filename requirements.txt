@@ -7,3 +7,7 @@ accelerate>=0.24.1
 
 # Quantization Engine (Crucial for 8-bit & 4-bit)
 bitsandbytes>=0.41.1
+
+# Notebook analysis + charting
+pandas>=2.0.0
+matplotlib>=3.7.0
