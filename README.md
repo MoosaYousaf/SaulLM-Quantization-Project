@@ -39,13 +39,29 @@ It now provides, in one run:
 
 From repository root:
 ```bash
+# Full run (all precisions)
 python scripts/run_benchmark.py
+
+# Colab T4 safer run (recommended first)
+python scripts/run_benchmark.py --precisions 4-bit,8-bit --max-new-tokens 96 --max-gpu-memory 12GiB
+
+# Optional FP16 baseline attempt with stronger offload
+python scripts/run_benchmark.py --precisions baseline --max-new-tokens 96 --max-gpu-memory 10GiB --max-cpu-memory 64GiB
 ```
 
 Generated artifacts:
 - `outputs/metrics_log.csv` → stage latency + peak VRAM by precision.
 - `outputs/accuracy_log.csv` → NDA concept coverage accuracy by precision.
 - `outputs/demo_responses.txt` and `outputs/demo_responses.json` → generated outputs for presentation.
+
+---
+
+
+### Colab memory management notes
+- The runner now enables `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to reduce fragmentation pressure.
+- Model loading now uses `max_memory` caps plus CPU/disk offload folder support.
+- If a precision still OOMs, the script records status=`oom` in CSV/JSON outputs and continues with remaining precisions instead of crashing.
+- For T4 GPUs, run 4-bit/8-bit first and execute baseline FP16 separately.
 
 ---
 
@@ -130,4 +146,3 @@ You can discuss improvements along these axes:
 - If starting from existing public code, include clear attribution/link to original source in your repo.
 - Keep this README and notebook as reproducible, step-by-step run instructions.
 - Demonstrate with your own data file(s) in addition to the provided mock NDA.
-

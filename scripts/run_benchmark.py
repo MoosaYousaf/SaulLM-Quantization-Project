@@ -1,17 +1,21 @@
+import argparse
 import csv
 import gc
 import json
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Tuple
+
+# Helps mitigate CUDA fragmentation on Colab.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 
 # Force Python to look at the parent directory to find 'src'
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.data.prompt_pipeline import format_legal_prompt
-from src.engine.model_loader import generate_response, load_model_and_tokenizer
+from src.engine.model_loader import load_model_and_tokenizer
 from src.evaluation.accuracy import score_nda_summary
 from src.telemetry.metrics import PerformanceTracker
 
@@ -32,10 +36,30 @@ PRECISION_TO_LOADER = {
 def _wipe_memory() -> None:
     gc.collect()
     if torch.cuda.is_available():
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
 
-def benchmark_model(precision: str, prompt: str) -> Dict[str, Dict[str, float]]:
+def _resolve_max_memory(max_gpu_memory: str, max_cpu_memory: str):
+    if torch.cuda.is_available():
+        return {0: max_gpu_memory, "cpu": max_cpu_memory}
+    return {"cpu": max_cpu_memory}
+
+
+def _get_device_for_inputs(model) -> torch.device:
+    if hasattr(model, "device"):
+        return model.device
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def benchmark_model(
+    precision: str,
+    prompt: str,
+    max_new_tokens: int,
+    max_memory: Dict,
+    offload_folder: str,
+) -> Tuple[Dict[str, Dict[str, float]], str]:
     _wipe_memory()
     tracker = PerformanceTracker()
 
@@ -44,26 +68,30 @@ def benchmark_model(precision: str, prompt: str) -> Dict[str, Dict[str, float]]:
         model_id=MODEL_ID,
         precision=PRECISION_TO_LOADER[precision],
         device_map="auto",
+        max_memory=max_memory,
+        offload_folder=offload_folder,
     )
 
     print(f"[{precision.upper()}] Running inference phases...")
 
     tracker.start_phase("pre_processing")
-    inputs = tokenizer(prompt, return_tensors="pt").to("cuda" if torch.cuda.is_available() else "cpu")
+    input_device = _get_device_for_inputs(model)
+    inputs = tokenizer(prompt, return_tensors="pt").to(input_device)
     tracker.end_phase()
 
     tracker.start_phase("inference")
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
-            max_new_tokens=220,
+            max_new_tokens=max_new_tokens,
+            use_cache=False,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
     tracker.end_phase()
 
     tracker.start_phase("post_processing")
-    generated_tokens = output_ids[0][inputs["input_ids"].shape[-1]:]
+    generated_tokens = output_ids[0][inputs["input_ids"].shape[-1] :]
     decoded_text = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
     tracker.end_phase()
 
@@ -75,13 +103,17 @@ def benchmark_model(precision: str, prompt: str) -> Dict[str, Dict[str, float]]:
     del output_ids
     _wipe_memory()
 
-    phase_metrics = tracker.phases
-    phase_metrics["response"] = {"text": decoded_text}
-    return phase_metrics
+    return tracker.phases, decoded_text
 
 
-def run_all_benchmarks() -> Dict[str, str]:
-    nda_path = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'raw_documents', 'mock_nda.txt')
+def run_all_benchmarks(
+    precisions: List[str],
+    max_new_tokens: int,
+    max_gpu_memory: str,
+    max_cpu_memory: str,
+    offload_folder: str,
+) -> Dict[str, str]:
+    nda_path = os.path.join(os.path.dirname(__file__), "..", "src", "data", "raw_documents", "mock_nda.txt")
 
     try:
         prompt = format_legal_prompt(nda_path)
@@ -93,78 +125,114 @@ def run_all_benchmarks() -> Dict[str, str]:
             "hold harmless the Client from any claims resulting from the Contractor's negligence."
         )
 
-    # Run from smallest to largest to reduce OOM risk on smaller GPUs.
-    precisions = ["4-bit", "8-bit", "baseline"]
-
+    max_memory = _resolve_max_memory(max_gpu_memory=max_gpu_memory, max_cpu_memory=max_cpu_memory)
     all_outputs: List[Dict[str, str]] = []
 
-    with open(LATENCY_CSV_FILE, mode='w', newline='', encoding='utf-8') as latency_file, open(
-        ACCURACY_CSV_FILE, mode='w', newline='', encoding='utf-8'
+    with open(LATENCY_CSV_FILE, mode="w", newline="", encoding="utf-8") as latency_file, open(
+        ACCURACY_CSV_FILE, mode="w", newline="", encoding="utf-8"
     ) as accuracy_file:
         latency_writer = csv.writer(latency_file)
         accuracy_writer = csv.writer(accuracy_file)
 
-        latency_writer.writerow(["Precision", "Phase", "Time_sec", "Peak_Memory_MB"])
+        latency_writer.writerow(["Precision", "Status", "Phase", "Time_sec", "Peak_Memory_MB"])
         accuracy_writer.writerow(
             [
                 "Precision",
+                "Status",
                 "Accuracy",
                 "ConfidentialInformationScore",
                 "ObligationsScore",
                 "GoverningLawScore",
+                "Error",
             ]
         )
 
         for prec in precisions:
-            run_data = benchmark_model(prec, prompt)
-            response_text = run_data["response"]["text"]
-            accuracy = score_nda_summary(response_text)
+            try:
+                phase_metrics, response_text = benchmark_model(
+                    precision=prec,
+                    prompt=prompt,
+                    max_new_tokens=max_new_tokens,
+                    max_memory=max_memory,
+                    offload_folder=offload_folder,
+                )
+                accuracy = score_nda_summary(response_text)
 
-            for phase in ["pre_processing", "inference", "post_processing"]:
-                metrics = run_data[phase]
-                latency_writer.writerow(
+                for phase in ["pre_processing", "inference", "post_processing"]:
+                    metrics = phase_metrics[phase]
+                    latency_writer.writerow(
+                        [
+                            prec,
+                            "ok",
+                            phase,
+                            f"{metrics['time_sec']:.4f}",
+                            f"{metrics['peak_memory_mb']:.2f}",
+                        ]
+                    )
+
+                accuracy_writer.writerow(
                     [
                         prec,
-                        phase,
-                        f"{metrics['time_sec']:.4f}",
-                        f"{metrics['peak_memory_mb']:.2f}",
+                        "ok",
+                        f"{accuracy['accuracy']:.4f}",
+                        f"{accuracy['confidential_information_score']:.4f}",
+                        f"{accuracy['obligations_receiving_party_score']:.4f}",
+                        f"{accuracy['governing_law_score']:.4f}",
+                        "",
                     ]
                 )
 
-            accuracy_writer.writerow(
-                [
-                    prec,
-                    f"{accuracy['accuracy']:.4f}",
-                    f"{accuracy['confidential_information_score']:.4f}",
-                    f"{accuracy['obligations_receiving_party_score']:.4f}",
-                    f"{accuracy['governing_law_score']:.4f}",
-                ]
-            )
+                all_outputs.append(
+                    {
+                        "precision": prec,
+                        "status": "ok",
+                        "accuracy": round(accuracy["accuracy"], 4),
+                        "confidential_information_score": accuracy["confidential_information_score"],
+                        "obligations_receiving_party_score": accuracy["obligations_receiving_party_score"],
+                        "governing_law_score": accuracy["governing_law_score"],
+                        "response": response_text,
+                    }
+                )
 
-            all_outputs.append(
-                {
-                    "precision": prec,
-                    "accuracy": round(accuracy["accuracy"], 4),
-                    "confidential_information_score": accuracy["confidential_information_score"],
-                    "obligations_receiving_party_score": accuracy["obligations_receiving_party_score"],
-                    "governing_law_score": accuracy["governing_law_score"],
-                    "response": response_text,
-                }
-            )
+            except torch.cuda.OutOfMemoryError as oom_error:
+                message = str(oom_error).replace("\n", " ")
+                print(f"❌ [{prec}] OOM: {message}")
+
+                latency_writer.writerow([prec, "oom", "pre_processing", "", ""])
+                latency_writer.writerow([prec, "oom", "inference", "", ""])
+                latency_writer.writerow([prec, "oom", "post_processing", "", ""])
+                accuracy_writer.writerow([prec, "oom", "", "", "", "", message])
+
+                all_outputs.append(
+                    {
+                        "precision": prec,
+                        "status": "oom",
+                        "accuracy": None,
+                        "response": "",
+                        "error": message,
+                    }
+                )
+                _wipe_memory()
+                continue
 
     with open(RESPONSES_TXT_FILE, "w", encoding="utf-8") as txt_file:
         for item in all_outputs:
             txt_file.write("=" * 90 + "\n")
             txt_file.write(f"PRECISION: {item['precision']}\n")
-            txt_file.write(f"ACCURACY: {item['accuracy']:.4f}\n")
-            txt_file.write(
-                "SCORES: "
-                f"confidential={item['confidential_information_score']:.1f}, "
-                f"obligations={item['obligations_receiving_party_score']:.1f}, "
-                f"law={item['governing_law_score']:.1f}\n"
-            )
-            txt_file.write("RESPONSE:\n")
-            txt_file.write(item["response"] + "\n\n")
+            txt_file.write(f"STATUS: {item['status']}\n")
+            if item["status"] == "ok":
+                txt_file.write(f"ACCURACY: {item['accuracy']:.4f}\n")
+                txt_file.write(
+                    "SCORES: "
+                    f"confidential={item['confidential_information_score']:.1f}, "
+                    f"obligations={item['obligations_receiving_party_score']:.1f}, "
+                    f"law={item['governing_law_score']:.1f}\n"
+                )
+                txt_file.write("RESPONSE:\n")
+                txt_file.write(item["response"] + "\n\n")
+            else:
+                txt_file.write("ERROR:\n")
+                txt_file.write(item.get("error", "Unknown error") + "\n\n")
 
     with open(RESPONSES_JSON_FILE, "w", encoding="utf-8") as json_file:
         json.dump(all_outputs, json_file, indent=2)
@@ -181,8 +249,35 @@ def run_all_benchmarks() -> Dict[str, str]:
     }
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run quantization latency + accuracy benchmark for SaulLM.")
+    parser.add_argument(
+        "--precisions",
+        default="4-bit,8-bit,baseline",
+        help="Comma-separated precisions to run. Example: '4-bit,8-bit' for Colab T4-safe run.",
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=128, help="Max generated tokens per run.")
+    parser.add_argument("--max-gpu-memory", default="13GiB", help="GPU memory cap for device_map auto placement.")
+    parser.add_argument("--max-cpu-memory", default="48GiB", help="CPU RAM cap for offloading.")
+    parser.add_argument("--offload-folder", default="offload", help="Folder for CPU/disk offloaded weights.")
+    return parser.parse_args()
+
+
 def main() -> None:
-    run_all_benchmarks()
+    args = parse_args()
+    precisions = [p.strip() for p in args.precisions.split(",") if p.strip()]
+
+    invalid = [p for p in precisions if p not in PRECISION_TO_LOADER]
+    if invalid:
+        raise ValueError(f"Unsupported precision(s): {invalid}. Valid values: {list(PRECISION_TO_LOADER)}")
+
+    run_all_benchmarks(
+        precisions=precisions,
+        max_new_tokens=args.max_new_tokens,
+        max_gpu_memory=args.max_gpu_memory,
+        max_cpu_memory=args.max_cpu_memory,
+        offload_folder=args.offload_folder,
+    )
 
 
 if __name__ == "__main__":
