@@ -12,6 +12,22 @@ It now provides, in one run:
 ## 1) Environment setup
 
 ### A. Google Colab (recommended)
+### A0. Fresh Colab bootstrap (recommended exactly as-is)
+Run these cells first in Colab to ensure a clean clone of your repo:
+```bash
+# Clean up any previous failed clones
+!rm -rf saullm-quantization-project
+
+# Clone the repository
+!git clone https://github.com/moosayousaf/saullm-quantization-project.git
+
+# Move into the correctly named lowercase folder
+%cd saullm-quantization-project
+
+# Step 1: install dependencies
+!pip install -q -r requirements.txt
+```
+
 1. Open Colab and set runtime to **GPU** (`Runtime -> Change runtime type -> T4/A100`).
 2. Clone your repository and enter it:
    ```bash
