@@ -16,12 +16,11 @@ def get_8bit_config():
         load_in_8bit=True,
         llm_int8_threshold=6.0,
         llm_int8_skip_modules=None,
-        llm_int8_enable_fp32_cpu_offload=True,
+        llm_int8_enable_fp32_cpu_offload=False,
     )
 
 
 def get_4bit_config():
-    # float16 is the safest compute dtype for Colab T4.
     return BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.float16,
@@ -36,17 +35,25 @@ def _get_default_max_memory(max_gpu_memory_gib: str = "13GiB", max_cpu_memory_gi
     return {"cpu": max_cpu_memory_gib}
 
 
-def _common_model_kwargs(device_map="auto", max_memory=None, offload_folder="offload"):
-    os.makedirs(offload_folder, exist_ok=True)
+def _common_model_kwargs(
+    device_map="auto",
+    max_memory=None,
+    offload_folder="offload",
+    enable_offload=False,
+):
     kwargs = {
         "device_map": device_map,
         "trust_remote_code": True,
         "low_cpu_mem_usage": True,
-        "offload_folder": offload_folder,
-        "offload_state_dict": True,
     }
     if max_memory is not None:
         kwargs["max_memory"] = max_memory
+
+    if enable_offload:
+        os.makedirs(offload_folder, exist_ok=True)
+        kwargs["offload_folder"] = offload_folder
+        kwargs["offload_state_dict"] = True
+
     return kwargs
 
 
@@ -58,12 +65,17 @@ def load_tokenizer(model_id=MODEL_ID):
 
 
 def load_fp16(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_folder="offload"):
-    print("[FP16] Loading in full FP16 with CPU offload safeguards ...")
+    print("[FP16] Loading FP16 with CPU offload safeguards ...", flush=True)
     tokenizer = load_tokenizer(model_id)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=torch.float16,
-        **_common_model_kwargs(device_map=device_map, max_memory=max_memory, offload_folder=offload_folder),
+        **_common_model_kwargs(
+            device_map=device_map,
+            max_memory=max_memory,
+            offload_folder=offload_folder,
+            enable_offload=True,
+        ),
     )
     model.eval()
     model.config.use_cache = False
@@ -72,13 +84,18 @@ def load_fp16(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_fol
 
 
 def load_8bit(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_folder="offload"):
-    print("[8-bit] Loading with LLM.int8() quantization + CPU offload ...")
+    print("[8-bit] Loading with LLM.int8() (GPU-first, no state-dict offload) ...", flush=True)
     tokenizer = load_tokenizer(model_id)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=get_8bit_config(),
         torch_dtype=torch.float16,
-        **_common_model_kwargs(device_map=device_map, max_memory=max_memory, offload_folder=offload_folder),
+        **_common_model_kwargs(
+            device_map=device_map,
+            max_memory=max_memory,
+            offload_folder=offload_folder,
+            enable_offload=False,
+        ),
     )
     model.eval()
     model.config.use_cache = False
@@ -87,12 +104,18 @@ def load_8bit(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_fol
 
 
 def load_4bit(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_folder="offload"):
-    print("[4-bit] Loading with NF4 4-bit quantization (Colab-safe config) ...")
+    print("[4-bit] Loading NF4 (GPU-first, no state-dict offload) ...", flush=True)
     tokenizer = load_tokenizer(model_id)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=get_4bit_config(),
-        **_common_model_kwargs(device_map=device_map, max_memory=max_memory, offload_folder=offload_folder),
+        torch_dtype=torch.float16,
+        **_common_model_kwargs(
+            device_map=device_map,
+            max_memory=max_memory,
+            offload_folder=offload_folder,
+            enable_offload=False,
+        ),
     )
     model.eval()
     model.config.use_cache = False
@@ -142,7 +165,7 @@ def generate_response(model, tokenizer, user_prompt, max_new_tokens=128, do_samp
 
 def _print_param_count(model, label):
     total = sum(p.numel() for p in model.parameters())
-    print(f"[{label}] Model loaded -- total parameters: {total:,}")
+    print(f"[{label}] Model loaded -- total parameters: {total:,}", flush=True)
 
 
 def hello_world_test(precision="8bit"):
