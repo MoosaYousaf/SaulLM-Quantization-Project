@@ -59,7 +59,7 @@ From repository root:
 python scripts/run_benchmark.py
 
 # Colab T4 safer run (recommended first)
-python scripts/run_benchmark.py --precisions 4-bit,8-bit --max-new-tokens 96 --max-gpu-memory 12GiB
+python scripts/run_benchmark.py --precisions 4-bit,8-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 12GiB
 
 # Optional professor-demo quick run (4-bit only)
 python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 96 --max-gpu-memory 12GiB
@@ -90,8 +90,8 @@ Generated artifacts:
 ### If Colab still crashes or hangs on load
 1. Restart runtime and run only one benchmark command per session.
 2. Verify free GPU memory before starting: `!nvidia-smi`.
-3. Start with 4-bit only: `python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 64 --max-gpu-memory 12GiB`.
-4. Then run 8-bit separately. Run baseline last (or skip on T4 if unstable).
+3. Start with 4-bit only: `python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 64 --max-input-tokens 1536 --max-gpu-memory 12GiB`.
+4. Then run 8-bit separately. Run 16-bit baseline last (or skip on T4 if unstable).
 
 ---
 

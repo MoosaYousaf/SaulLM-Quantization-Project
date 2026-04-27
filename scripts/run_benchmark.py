@@ -29,7 +29,7 @@ PRECISION_ORDER = {"4-bit": 0, "8-bit": 1, "16-bit": 2}
 
 
 def _normalize_precision_name(raw_precision: str) -> str:
-    normalized = raw_precision.strip().lower().replace("_", "").replace(" ", "")
+    normalized = raw_precision.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
     aliases = {
         "4bit": "4-bit",
         "8bit": "8-bit",
@@ -76,6 +76,7 @@ def benchmark_model(
     precision: str,
     prompt: str,
     max_new_tokens: int,
+    max_input_tokens: int,
     max_memory: Dict,
     offload_folder: str,
 ) -> Tuple[Dict[str, Dict[str, float]], str]:
@@ -83,10 +84,11 @@ def benchmark_model(
     tracker = PerformanceTracker()
 
     print(f"\n[{precision.upper()}] Loading tokenizer and model...", flush=True)
+    device_map = {"": 0} if torch.cuda.is_available() and precision in {"4-bit", "8-bit"} else "auto"
     model, tokenizer = load_model_and_tokenizer(
         model_id=model_id,
         precision=PRECISION_TO_LOADER[precision],
-        device_map="auto",
+        device_map=device_map,
         max_memory=max_memory,
         offload_folder=offload_folder,
     )
@@ -95,7 +97,7 @@ def benchmark_model(
 
     tracker.start_phase("pre_processing")
     input_device = _get_device_for_inputs(model)
-    inputs = tokenizer(prompt, return_tensors="pt").to(input_device)
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens).to(input_device)
     tracker.end_phase()
 
     tracker.start_phase("inference")
@@ -126,6 +128,7 @@ def run_all_benchmarks(
     model_id: str,
     precisions: List[str],
     max_new_tokens: int,
+    max_input_tokens: int,
     max_gpu_memory: str,
     max_cpu_memory: str,
     offload_folder: str,
@@ -163,6 +166,7 @@ def run_all_benchmarks(
                     precision=prec,
                     prompt=prompt,
                     max_new_tokens=max_new_tokens,
+                    max_input_tokens=max_input_tokens,
                     max_memory=max_memory,
                     offload_folder=offload_folder,
                 )
@@ -267,6 +271,7 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated precisions to run. Run order is always 4-bit -> 8-bit -> 16-bit.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=96, help="Max generated tokens per run.")
+    parser.add_argument("--max-input-tokens", type=int, default=2048, help="Tokenizer truncation cap for input prompt.")
     parser.add_argument("--max-gpu-memory", default="12GiB", help="GPU memory cap for placement.")
     parser.add_argument("--max-cpu-memory", default="48GiB", help="CPU RAM cap for offloading.")
     parser.add_argument("--offload-folder", default="offload", help="Folder for CPU/disk offloaded weights.")
@@ -283,6 +288,7 @@ def main() -> None:
         model_id=args.model_id,
         precisions=precisions,
         max_new_tokens=args.max_new_tokens,
+        max_input_tokens=args.max_input_tokens,
         max_gpu_memory=args.max_gpu_memory,
         max_cpu_memory=args.max_cpu_memory,
         offload_folder=args.offload_folder,
