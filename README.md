@@ -56,16 +56,16 @@ Run these cells first in Colab to ensure a clean clone of your repo:
 From repository root:
 ```bash
 # Full run (all precisions, always ordered 4-bit -> 8-bit -> 16-bit)
-python scripts/run_benchmark.py
+python scripts/run_benchmark.py --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 
-# Colab T4 safer run (recommended first)
-python scripts/run_benchmark.py --precisions 4-bit,8-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 12GiB
+# Colab T4 run including 16-bit baseline with stronger FP16 offload safeguards
+python scripts/run_benchmark.py --precisions 4-bit,8-bit,16-bit --max-new-tokens 96 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 
 # Optional professor-demo quick run (4-bit only)
 python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 12GiB
 
 # Optional 16-bit baseline attempt with stronger offload
-python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 10GiB --max-cpu-memory 64GiB
+python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 96 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 ```
 
 Generated artifacts:
@@ -80,6 +80,7 @@ Generated artifacts:
 - The runner now enables `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to reduce fragmentation pressure.
 - Model loading now uses `max_memory` caps plus CPU/disk offload folder support.
 - Quantized loads (4-bit/8-bit) are now GPU-first (no state-dict offload) to avoid Colab CPU RAM spikes during weight materialization.
+- 16-bit baseline uses a stricter GPU cap (`--fp16-gpu-memory`) plus automatic retry with an even smaller cap (`--fp16-retry-gpu-memory`) to finish on T4-class GPUs.
 - If loading appears stuck, restart runtime, rerun from a clean process, and avoid running multiple benchmark processes in one notebook session.
 - If a precision still OOMs, the script records status=`oom` in CSV/JSON outputs and continues with remaining precisions instead of crashing.
 - For T4 GPUs, run 4-bit/8-bit first and execute 16-bit baseline separately.
