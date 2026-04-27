@@ -5,7 +5,7 @@ This project benchmarks and demonstrates quantized inference for **`Equall/Saul-
 It now provides, in one run:
 - **Telemetry/latency** per stage: pre-processing, inference, post-processing.
 - **Accuracy scores** for each precision mode (`16-bit` FP16, `8-bit`, `4-bit`) using semantic similarity against NDA concept gold standards.
-- **Demo outputs** (actual generated summaries) for professor presentation.
+- **Demo outputs** actual generated summaries
 
 ---
 
@@ -76,19 +76,7 @@ Generated artifacts:
 ---
 
 
-### Colab memory management notes
-- The runner now enables `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to reduce fragmentation pressure.
-- Model loading now uses `max_memory` caps plus CPU/disk offload folder support.
-- Quantized loads (4-bit/8-bit) are now GPU-first (no state-dict offload) to avoid Colab CPU RAM spikes during weight materialization.
-- 16-bit baseline uses a stricter GPU cap (`--fp16-gpu-memory`) plus automatic retry with an even smaller cap (`--fp16-retry-gpu-memory`) to finish on T4-class GPUs.
-- If loading appears stuck, restart runtime, rerun from a clean process, and avoid running multiple benchmark processes in one notebook session.
-- If a precision still OOMs, the script records status=`oom` in CSV/JSON outputs and continues with remaining precisions instead of crashing.
-- For T4 GPUs, run 4-bit/8-bit first and execute 16-bit baseline separately.
-
----
-
-
-### If Colab still crashes or hangs on load
+### If Colab crashes or hangs on load
 1. Restart runtime and run only one benchmark command per session.
 2. Verify free GPU memory before starting: `!nvidia-smi`.
 3. Start with 4-bit only: `python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 256 --max-input-tokens 1536 --max-gpu-memory 12GiB`.
@@ -96,7 +84,7 @@ Generated artifacts:
 
 ---
 
-## 3) Notebook demo (for class presentation)
+## 3) Demo Flow
 
 Use:
 - `notebooks/quantization_demo.ipynb`
@@ -108,7 +96,7 @@ Notebook flow:
 4. display latency and accuracy tables,
 5. plot latency chart,
 6. print model responses for each precision,
-7. optional architecture profiler output (for model-structure/parameter reporting).
+7. architecture profiler output (for model-structure/parameter reporting).
 
 ### Accuracy log columns explained
 - `Accuracy`: overall score = mean of the three concept scores.
@@ -149,38 +137,8 @@ Each concept receives a cosine-similarity-based score in `[0,1]`; final accuracy
 
 ## 5) Model structure, parameter count, and compute-cost discussion
 
-Use the optional profiler in `src/telemetry/model_profiler.py` to inspect:
+Profiler in `src/telemetry/model_profiler.py` to inspect:
 - total/trainable/frozen parameter counts,
 - estimated VRAM usage by precision,
 - layer-type counts,
 - component-level parameter distribution.
-
-You can run it inside the notebook (included cell) to report:
-- model scale,
-- memory/computation implications,
-- quantization trade-offs.
-
----
-
-## 6) Performance bottleneck interpretation
-
-In most transformer generation workloads, **inference stage** should dominate latency, while pre/post stages are much smaller. Confirm this from `outputs/metrics_log.csv` and include chart in your slides.
-
----
-
-## 7) Suggested improvements for your report
-
-You can discuss improvements along these axes:
-- **Speed**: quantization, smaller `max_new_tokens`, batching strategies.
-- **Memory/model size**: 8-bit/4-bit deployment.
-- **Accuracy**: prompt engineering, post-processing guards, better prompts and richer semantic evaluation sets.
-- **Cost**: choosing precision mode per hardware budget.
-
----
-
-## 8) Academic and repository requirements checklist
-
-- Every team member should host code in their own GitHub repository/fork.
-- If starting from existing public code, include clear attribution/link to original source in your repo.
-- Keep this README and notebook as reproducible, step-by-step run instructions.
-- Demonstrate with your own data file(s) in addition to the provided mock NDA.
