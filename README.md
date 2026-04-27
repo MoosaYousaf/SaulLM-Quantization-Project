@@ -1,10 +1,10 @@
-# SaulLM Quantization Project (FP16 vs 8-bit vs 4-bit)
+# SaulLM Quantization Project (16-bit vs 8-bit vs 4-bit)
 
 This project benchmarks and demonstrates quantized inference for **`Equall/Saul-7B-Instruct-v1`** on legal NDA text.
 
 It now provides, in one run:
 - **Telemetry/latency** per stage: pre-processing, inference, post-processing.
-- **Accuracy scores** for each precision mode (`baseline` FP16, `8-bit`, `4-bit`) using a transparent NDA concept rubric.
+- **Accuracy scores** for each precision mode (`16-bit` FP16, `8-bit`, `4-bit`) using a transparent NDA concept rubric.
 - **Demo outputs** (actual generated summaries) for professor presentation.
 
 ---
@@ -55,14 +55,17 @@ Run these cells first in Colab to ensure a clean clone of your repo:
 
 From repository root:
 ```bash
-# Full run (all precisions)
+# Full run (all precisions, always ordered 4-bit -> 8-bit -> 16-bit)
 python scripts/run_benchmark.py
 
 # Colab T4 safer run (recommended first)
 python scripts/run_benchmark.py --precisions 4-bit,8-bit --max-new-tokens 96 --max-gpu-memory 12GiB
 
-# Optional FP16 baseline attempt with stronger offload
-python scripts/run_benchmark.py --precisions baseline --max-new-tokens 96 --max-gpu-memory 10GiB --max-cpu-memory 64GiB
+# Optional professor-demo quick run (4-bit only)
+python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 96 --max-gpu-memory 12GiB
+
+# Optional 16-bit baseline attempt with stronger offload
+python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 96 --max-gpu-memory 10GiB --max-cpu-memory 64GiB
 ```
 
 Generated artifacts:
@@ -79,7 +82,7 @@ Generated artifacts:
 - Quantized loads (4-bit/8-bit) are now GPU-first (no state-dict offload) to avoid Colab CPU RAM spikes during weight materialization.
 - If loading appears stuck, restart runtime, rerun from a clean process, and avoid running multiple benchmark processes in one notebook session.
 - If a precision still OOMs, the script records status=`oom` in CSV/JSON outputs and continues with remaining precisions instead of crashing.
-- For T4 GPUs, run 4-bit/8-bit first and execute baseline FP16 separately.
+- For T4 GPUs, run 4-bit/8-bit first and execute 16-bit baseline separately.
 
 ---
 
@@ -113,7 +116,7 @@ Notebook flow:
 ### Model and quantization
 - Model: `Equall/Saul-7B-Instruct-v1` (causal LM).
 - Precision modes:
-  - **Baseline**: FP16
+  - **16-bit**: FP16 (alias: `baseline` / `fp16`)
   - **8-bit**: LLM.int8 via bitsandbytes
   - **4-bit**: NF4 quantization via bitsandbytes
 
