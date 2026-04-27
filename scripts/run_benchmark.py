@@ -3,6 +3,7 @@ import csv
 import gc
 import json
 import os
+import re
 import sys
 from typing import Dict, List, Tuple
 
@@ -24,7 +25,22 @@ RESPONSES_TXT_FILE = "outputs/demo_responses.txt"
 RESPONSES_JSON_FILE = "outputs/demo_responses.json"
 DEFAULT_MODEL_ID = "Equall/Saul-7B-Instruct-v1"
 
-PRECISION_TO_LOADER = {"baseline": "fp16", "8-bit": "8bit", "4-bit": "4bit"}
+PRECISION_TO_LOADER = {"baseline": "fp16", "16-bit": "fp16", "8-bit": "8bit", "4-bit": "4bit"}
+PRECISION_ORDER = {"4-bit": 0, "8-bit": 1, "16-bit": 2}
+
+
+def _normalize_precision_name(raw_precision: str) -> str:
+    normalized = raw_precision.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    aliases = {
+        "4bit": "4-bit",
+        "8bit": "8-bit",
+        "16bit": "16-bit",
+        "fp16": "16-bit",
+        "baseline": "16-bit",
+    }
+    if normalized not in aliases:
+        raise ValueError(f"Unsupported precision '{raw_precision}'. Use one of: 4-bit, 8-bit, 16-bit (or baseline/fp16).")
+    return aliases[normalized]
 
 
 def _wipe_memory() -> None:
@@ -41,12 +57,31 @@ def _resolve_max_memory(max_gpu_memory: str, max_cpu_memory: str):
     return {"cpu": max_cpu_memory}
 
 
-def _precision_memory_caps(precision: str, max_gpu_memory: str, max_cpu_memory: str):
+def _memory_gib_to_float(memory_str: str) -> float:
+    match = re.match(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*gib\s*$", memory_str.lower())
+    if not match:
+        raise ValueError(f"Memory value '{memory_str}' must look like '12GiB'.")
+    return float(match.group(1))
+
+
+def _min_gib_memory(a: str, b: str) -> str:
+    return f"{min(_memory_gib_to_float(a), _memory_gib_to_float(b)):g}GiB"
+
+
+def _precision_memory_caps(
+    precision: str,
+    max_gpu_memory: str,
+    max_cpu_memory: str,
+    fp16_gpu_memory: str,
+):
     if precision in {"4-bit", "8-bit"}:
         # Keep quantized loads GPU-first to avoid massive CPU RAM pressure in Colab.
         if torch.cuda.is_available():
             return {0: max_gpu_memory}
         return {"cpu": max_cpu_memory}
+    if precision == "16-bit" and torch.cuda.is_available():
+        # Force stronger CPU offload for FP16 baseline on T4/Colab.
+        return {0: _min_gib_memory(max_gpu_memory, fp16_gpu_memory), "cpu": max_cpu_memory}
     return _resolve_max_memory(max_gpu_memory=max_gpu_memory, max_cpu_memory=max_cpu_memory)
 
 
@@ -61,6 +96,7 @@ def benchmark_model(
     precision: str,
     prompt: str,
     max_new_tokens: int,
+    max_input_tokens: int,
     max_memory: Dict,
     offload_folder: str,
 ) -> Tuple[Dict[str, Dict[str, float]], str]:
@@ -68,10 +104,16 @@ def benchmark_model(
     tracker = PerformanceTracker()
 
     print(f"\n[{precision.upper()}] Loading tokenizer and model...", flush=True)
+    if torch.cuda.is_available() and precision in {"4-bit", "8-bit"}:
+        device_map = {"": 0}
+    elif torch.cuda.is_available() and precision == "16-bit":
+        device_map = "sequential"
+    else:
+        device_map = "auto"
     model, tokenizer = load_model_and_tokenizer(
         model_id=model_id,
         precision=PRECISION_TO_LOADER[precision],
-        device_map="auto",
+        device_map=device_map,
         max_memory=max_memory,
         offload_folder=offload_folder,
     )
@@ -80,7 +122,7 @@ def benchmark_model(
 
     tracker.start_phase("pre_processing")
     input_device = _get_device_for_inputs(model)
-    inputs = tokenizer(prompt, return_tensors="pt").to(input_device)
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens).to(input_device)
     tracker.end_phase()
 
     tracker.start_phase("inference")
@@ -111,8 +153,11 @@ def run_all_benchmarks(
     model_id: str,
     precisions: List[str],
     max_new_tokens: int,
+    max_input_tokens: int,
     max_gpu_memory: str,
     max_cpu_memory: str,
+    fp16_gpu_memory: str,
+    fp16_retry_gpu_memory: str,
     offload_folder: str,
 ) -> Dict[str, str]:
     nda_path = os.path.join(os.path.dirname(__file__), "..", "src", "data", "raw_documents", "mock_nda.txt")
@@ -137,17 +182,37 @@ def run_all_benchmarks(
 
         latency_writer.writerow(["Precision", "Status", "Phase", "Time_sec", "Peak_Memory_MB"])
         accuracy_writer.writerow(
-            ["Precision", "Status", "Accuracy", "ConfidentialInformationScore", "ObligationsScore", "GoverningLawScore", "Error"]
+            [
+                "Precision",
+                "Status",
+                "Accuracy",
+                "ConfidentialInformationScore",
+                "ObligationsScore",
+                "GoverningLawScore",
+                "ConfidentialMatchedKeywords",
+                "ObligationsMatchedKeywords",
+                "GoverningLawMatchedKeywords",
+                "ConfidentialTotalKeywords",
+                "ObligationsTotalKeywords",
+                "GoverningLawTotalKeywords",
+                "Error",
+            ]
         )
 
         for prec in precisions:
-            max_memory = _precision_memory_caps(prec, max_gpu_memory=max_gpu_memory, max_cpu_memory=max_cpu_memory)
+            max_memory = _precision_memory_caps(
+                prec,
+                max_gpu_memory=max_gpu_memory,
+                max_cpu_memory=max_cpu_memory,
+                fp16_gpu_memory=fp16_gpu_memory,
+            )
             try:
                 phase_metrics, response_text = benchmark_model(
                     model_id=model_id,
                     precision=prec,
                     prompt=prompt,
                     max_new_tokens=max_new_tokens,
+                    max_input_tokens=max_input_tokens,
                     max_memory=max_memory,
                     offload_folder=offload_folder,
                 )
@@ -165,6 +230,12 @@ def run_all_benchmarks(
                         f"{accuracy['confidential_information_score']:.4f}",
                         f"{accuracy['obligations_receiving_party_score']:.4f}",
                         f"{accuracy['governing_law_score']:.4f}",
+                        f"{accuracy['confidential_information_matched_keywords']:.0f}",
+                        f"{accuracy['obligations_receiving_party_matched_keywords']:.0f}",
+                        f"{accuracy['governing_law_matched_keywords']:.0f}",
+                        f"{accuracy['confidential_information_total_keywords']:.0f}",
+                        f"{accuracy['obligations_receiving_party_total_keywords']:.0f}",
+                        f"{accuracy['governing_law_total_keywords']:.0f}",
                         "",
                     ]
                 )
@@ -177,6 +248,14 @@ def run_all_benchmarks(
                         "confidential_information_score": accuracy["confidential_information_score"],
                         "obligations_receiving_party_score": accuracy["obligations_receiving_party_score"],
                         "governing_law_score": accuracy["governing_law_score"],
+                        "confidential_information_matched_keywords": int(accuracy["confidential_information_matched_keywords"]),
+                        "obligations_receiving_party_matched_keywords": int(
+                            accuracy["obligations_receiving_party_matched_keywords"]
+                        ),
+                        "governing_law_matched_keywords": int(accuracy["governing_law_matched_keywords"]),
+                        "confidential_information_total_keywords": int(accuracy["confidential_information_total_keywords"]),
+                        "obligations_receiving_party_total_keywords": int(accuracy["obligations_receiving_party_total_keywords"]),
+                        "governing_law_total_keywords": int(accuracy["governing_law_total_keywords"]),
                         "response": response_text,
                     }
                 )
@@ -186,13 +265,95 @@ def run_all_benchmarks(
                 if "out of memory" not in message.lower() and "cuda" not in message.lower():
                     raise
 
+                if prec == "16-bit":
+                    print(f"⚠️ [{prec}] OOM on first attempt, retrying with stronger offload ...", flush=True)
+                    retry_memory = {
+                        0: _min_gib_memory(fp16_gpu_memory, fp16_retry_gpu_memory),
+                        "cpu": max_cpu_memory,
+                    }
+                    try:
+                        phase_metrics, response_text = benchmark_model(
+                            model_id=model_id,
+                            precision=prec,
+                            prompt=prompt,
+                            max_new_tokens=max_new_tokens,
+                            max_input_tokens=max_input_tokens,
+                            max_memory=retry_memory,
+                            offload_folder=offload_folder,
+                        )
+                        accuracy = score_nda_summary(response_text)
+
+                        for phase in ["pre_processing", "inference", "post_processing"]:
+                            metrics = phase_metrics[phase]
+                            latency_writer.writerow(
+                                [prec, "ok_retry", phase, f"{metrics['time_sec']:.4f}", f"{metrics['peak_memory_mb']:.2f}"]
+                            )
+
+                        accuracy_writer.writerow(
+                            [
+                                prec,
+                                "ok_retry",
+                                f"{accuracy['accuracy']:.4f}",
+                                f"{accuracy['confidential_information_score']:.4f}",
+                                f"{accuracy['obligations_receiving_party_score']:.4f}",
+                                f"{accuracy['governing_law_score']:.4f}",
+                                f"{accuracy['confidential_information_matched_keywords']:.0f}",
+                                f"{accuracy['obligations_receiving_party_matched_keywords']:.0f}",
+                                f"{accuracy['governing_law_matched_keywords']:.0f}",
+                                f"{accuracy['confidential_information_total_keywords']:.0f}",
+                                f"{accuracy['obligations_receiving_party_total_keywords']:.0f}",
+                                f"{accuracy['governing_law_total_keywords']:.0f}",
+                                f"first_attempt_error={message}",
+                            ]
+                        )
+
+                        all_outputs.append(
+                            {
+                                "precision": prec,
+                                "status": "ok_retry",
+                                "accuracy": round(accuracy["accuracy"], 4),
+                                "confidential_information_score": accuracy["confidential_information_score"],
+                                "obligations_receiving_party_score": accuracy["obligations_receiving_party_score"],
+                                "governing_law_score": accuracy["governing_law_score"],
+                                "confidential_information_matched_keywords": int(
+                                    accuracy["confidential_information_matched_keywords"]
+                                ),
+                                "obligations_receiving_party_matched_keywords": int(
+                                    accuracy["obligations_receiving_party_matched_keywords"]
+                                ),
+                                "governing_law_matched_keywords": int(accuracy["governing_law_matched_keywords"]),
+                                "confidential_information_total_keywords": int(
+                                    accuracy["confidential_information_total_keywords"]
+                                ),
+                                "obligations_receiving_party_total_keywords": int(
+                                    accuracy["obligations_receiving_party_total_keywords"]
+                                ),
+                                "governing_law_total_keywords": int(accuracy["governing_law_total_keywords"]),
+                                "response": response_text,
+                            }
+                        )
+                        _wipe_memory()
+                        continue
+                    except Exception as retry_error:
+                        message = f"{message} | retry_failed={str(retry_error).replace(chr(10), ' ')}"
+
                 print(f"❌ [{prec}] OOM/Runtime memory error: {message}", flush=True)
                 latency_writer.writerow([prec, "oom", "pre_processing", "", ""])
                 latency_writer.writerow([prec, "oom", "inference", "", ""])
                 latency_writer.writerow([prec, "oom", "post_processing", "", ""])
-                accuracy_writer.writerow([prec, "oom", "", "", "", "", message])
+                accuracy_writer.writerow([prec, "oom", "", "", "", "", "", "", "", "", "", "", message])
 
                 all_outputs.append({"precision": prec, "status": "oom", "accuracy": None, "response": "", "error": message})
+                _wipe_memory()
+                continue
+            except Exception as run_error:
+                message = str(run_error).replace("\n", " ")
+                print(f"❌ [{prec}] Failed: {message}", flush=True)
+                latency_writer.writerow([prec, "error", "pre_processing", "", ""])
+                latency_writer.writerow([prec, "error", "inference", "", ""])
+                latency_writer.writerow([prec, "error", "post_processing", "", ""])
+                accuracy_writer.writerow([prec, "error", "", "", "", "", "", "", "", "", "", "", message])
+                all_outputs.append({"precision": prec, "status": "error", "accuracy": None, "response": "", "error": message})
                 _wipe_memory()
                 continue
             except KeyboardInterrupt:
@@ -211,6 +372,12 @@ def run_all_benchmarks(
                     f"confidential={item['confidential_information_score']:.1f}, "
                     f"obligations={item['obligations_receiving_party_score']:.1f}, "
                     f"law={item['governing_law_score']:.1f}\n"
+                )
+                txt_file.write(
+                    "KEYWORD MATCHES: "
+                    f"confidential={item['confidential_information_matched_keywords']}/{item['confidential_information_total_keywords']}, "
+                    f"obligations={item['obligations_receiving_party_matched_keywords']}/{item['obligations_receiving_party_total_keywords']}, "
+                    f"law={item['governing_law_matched_keywords']}/{item['governing_law_total_keywords']}\n"
                 )
                 txt_file.write("RESPONSE:\n")
                 txt_file.write(item["response"] + "\n\n")
@@ -238,30 +405,42 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="HF model id to benchmark.")
     parser.add_argument(
         "--precisions",
-        default="4-bit,8-bit,baseline",
-        help="Comma-separated precisions to run. Example: '4-bit,8-bit' for Colab T4-safe run.",
+        default="4-bit,8-bit,16-bit",
+        help="Comma-separated precisions to run. Run order is always 4-bit -> 8-bit -> 16-bit.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=96, help="Max generated tokens per run.")
+    parser.add_argument("--max-input-tokens", type=int, default=2048, help="Tokenizer truncation cap for input prompt.")
     parser.add_argument("--max-gpu-memory", default="12GiB", help="GPU memory cap for placement.")
     parser.add_argument("--max-cpu-memory", default="48GiB", help="CPU RAM cap for offloading.")
+    parser.add_argument(
+        "--fp16-gpu-memory",
+        default="8GiB",
+        help="Primary GPU memory cap specifically for 16-bit baseline to force safer offload.",
+    )
+    parser.add_argument(
+        "--fp16-retry-gpu-memory",
+        default="6GiB",
+        help="Retry GPU memory cap for 16-bit baseline if first load OOMs.",
+    )
     parser.add_argument("--offload-folder", default="offload", help="Folder for CPU/disk offloaded weights.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    precisions = [p.strip() for p in args.precisions.split(",") if p.strip()]
-
-    invalid = [p for p in precisions if p not in PRECISION_TO_LOADER]
-    if invalid:
-        raise ValueError(f"Unsupported precision(s): {invalid}. Valid values: {list(PRECISION_TO_LOADER)}")
+    normalized_precisions = [_normalize_precision_name(p) for p in args.precisions.split(",") if p.strip()]
+    precisions = sorted(set(normalized_precisions), key=lambda p: PRECISION_ORDER[p])
+    print(f"🔁 Precision run order: {', '.join(precisions)}", flush=True)
 
     run_all_benchmarks(
         model_id=args.model_id,
         precisions=precisions,
         max_new_tokens=args.max_new_tokens,
+        max_input_tokens=args.max_input_tokens,
         max_gpu_memory=args.max_gpu_memory,
         max_cpu_memory=args.max_cpu_memory,
+        fp16_gpu_memory=args.fp16_gpu_memory,
+        fp16_retry_gpu_memory=args.fp16_retry_gpu_memory,
         offload_folder=args.offload_folder,
     )
 

@@ -1,10 +1,10 @@
-# SaulLM Quantization Project (FP16 vs 8-bit vs 4-bit)
+# SaulLM Quantization Project (16-bit vs 8-bit vs 4-bit)
 
 This project benchmarks and demonstrates quantized inference for **`Equall/Saul-7B-Instruct-v1`** on legal NDA text.
 
 It now provides, in one run:
 - **Telemetry/latency** per stage: pre-processing, inference, post-processing.
-- **Accuracy scores** for each precision mode (`baseline` FP16, `8-bit`, `4-bit`) using a transparent NDA concept rubric.
+- **Accuracy scores** for each precision mode (`16-bit` FP16, `8-bit`, `4-bit`) using a transparent NDA concept rubric.
 - **Demo outputs** (actual generated summaries) for professor presentation.
 
 ---
@@ -55,14 +55,17 @@ Run these cells first in Colab to ensure a clean clone of your repo:
 
 From repository root:
 ```bash
-# Full run (all precisions)
-python scripts/run_benchmark.py
+# Full run (all precisions, always ordered 4-bit -> 8-bit -> 16-bit)
+python scripts/run_benchmark.py --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 
-# Colab T4 safer run (recommended first)
-python scripts/run_benchmark.py --precisions 4-bit,8-bit --max-new-tokens 96 --max-gpu-memory 12GiB
+# Colab T4 run including 16-bit baseline with stronger FP16 offload safeguards
+python scripts/run_benchmark.py --precisions 4-bit,8-bit,16-bit --max-new-tokens 96 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 
-# Optional FP16 baseline attempt with stronger offload
-python scripts/run_benchmark.py --precisions baseline --max-new-tokens 96 --max-gpu-memory 10GiB --max-cpu-memory 64GiB
+# Optional professor-demo quick run (4-bit only)
+python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 12GiB
+
+# Optional 16-bit baseline attempt with stronger offload
+python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 96 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 ```
 
 Generated artifacts:
@@ -77,9 +80,10 @@ Generated artifacts:
 - The runner now enables `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` to reduce fragmentation pressure.
 - Model loading now uses `max_memory` caps plus CPU/disk offload folder support.
 - Quantized loads (4-bit/8-bit) are now GPU-first (no state-dict offload) to avoid Colab CPU RAM spikes during weight materialization.
+- 16-bit baseline uses a stricter GPU cap (`--fp16-gpu-memory`) plus automatic retry with an even smaller cap (`--fp16-retry-gpu-memory`) to finish on T4-class GPUs.
 - If loading appears stuck, restart runtime, rerun from a clean process, and avoid running multiple benchmark processes in one notebook session.
 - If a precision still OOMs, the script records status=`oom` in CSV/JSON outputs and continues with remaining precisions instead of crashing.
-- For T4 GPUs, run 4-bit/8-bit first and execute baseline FP16 separately.
+- For T4 GPUs, run 4-bit/8-bit first and execute 16-bit baseline separately.
 
 ---
 
@@ -87,8 +91,8 @@ Generated artifacts:
 ### If Colab still crashes or hangs on load
 1. Restart runtime and run only one benchmark command per session.
 2. Verify free GPU memory before starting: `!nvidia-smi`.
-3. Start with 4-bit only: `python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 64 --max-gpu-memory 12GiB`.
-4. Then run 8-bit separately. Run baseline last (or skip on T4 if unstable).
+3. Start with 4-bit only: `python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 64 --max-input-tokens 1536 --max-gpu-memory 12GiB`.
+4. Then run 8-bit separately. Run 16-bit baseline last (or skip on T4 if unstable).
 
 ---
 
@@ -104,7 +108,14 @@ Notebook flow:
 4. display latency and accuracy tables,
 5. plot latency chart,
 6. print model responses for each precision,
-7. optional architecture profiler output.
+7. optional architecture profiler output (for model-structure/parameter reporting).
+
+### Accuracy log columns explained
+- `Accuracy`: overall score = mean of the three concept scores.
+- `ConfidentialInformationScore`, `ObligationsScore`, `GoverningLawScore`: per-concept coverage scores in `[0,1]`.
+- `*MatchedKeywords`: how many rubric keywords for that concept were found in the generated text.
+- `*TotalKeywords`: denominator used for that concept's coverage score.
+- `Error`: populated only when a run fails (`oom` or `error` status).
 
 ---
 
@@ -113,7 +124,7 @@ Notebook flow:
 ### Model and quantization
 - Model: `Equall/Saul-7B-Instruct-v1` (causal LM).
 - Precision modes:
-  - **Baseline**: FP16
+  - **16-bit**: FP16 (alias: `baseline` / `fp16`)
   - **8-bit**: LLM.int8 via bitsandbytes
   - **4-bit**: NF4 quantization via bitsandbytes
 
