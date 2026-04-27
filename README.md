@@ -62,10 +62,10 @@ python scripts/run_benchmark.py
 python scripts/run_benchmark.py --precisions 4-bit,8-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 12GiB
 
 # Optional professor-demo quick run (4-bit only)
-python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 96 --max-gpu-memory 12GiB
+python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 12GiB
 
 # Optional 16-bit baseline attempt with stronger offload
-python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 96 --max-gpu-memory 10GiB --max-cpu-memory 64GiB
+python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 10GiB --max-cpu-memory 64GiB
 ```
 
 Generated artifacts:
@@ -106,8 +106,7 @@ Notebook flow:
 3. run benchmark script,
 4. display latency and accuracy tables,
 5. plot latency chart,
-6. print model responses for each precision,
-7. optional architecture profiler output.
+6. print model responses for each precision.
 
 ---
 
