@@ -1,104 +1,86 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, Tuple
+
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
 @dataclass(frozen=True)
 class AccuracyRubric:
-    """Keyword-based rubric to score whether core NDA summary points are present."""
+    """Gold-standard statements used to semantically score core NDA concepts."""
 
-    confidential_information: List[str]
-    obligations_receiving_party: List[str]
-    governing_law: List[str]
+    confidential_information: str
+    obligations_receiving_party: str
+    governing_law: str
 
 
 def default_rubric() -> AccuracyRubric:
     return AccuracyRubric(
-        confidential_information=[
-            "confidential information",
-            "confidential",
-            "source code",
-            "proprietary",
-            "public domain",
-            "technical and non-technical",
-            "technical",
-        ],
-        obligations_receiving_party=[
-            "receiving party",
-            "strict confidence",
-            "strictest confidence",
-            "restrict access",
-            "not disclose",
-            "not publish",
-            "not copy",
-            "sole and exclusive benefit",
-            "obligations",
-        ],
-        governing_law=[
-            "governed by",
-            "governing",
-            "state of georgia",
-            "governing law",
-            "conflict of law",
-            "law",
-        ],
+        confidential_information=(
+            "Confidential Information includes non-public technical and non-technical proprietary material, "
+            "such as source code and business information, but excludes anything that is publicly available."
+        ),
+        obligations_receiving_party=(
+            "The receiving party must keep disclosed information in strict confidence, limit access, and avoid "
+            "disclosing, publishing, or copying it except for the agreement's permitted purpose."
+        ),
+        governing_law=(
+            "The NDA is governed by the laws of the State of Georgia, without applying conflict-of-law principles."
+        ),
     )
 
 
-def _contains_keyword(text: str, keyword: str) -> bool:
-    escaped = re.escape(keyword.lower())
-    if " " in keyword:
-        return keyword.lower() in text
-    return re.search(rf"\b{escaped}\w*\b", text) is not None
+_EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+_model: SentenceTransformer | None = None
 
 
-def _concept_coverage(text: str, keywords: List[str]) -> Dict[str, float]:
-    matched_keywords = [kw for kw in keywords if _contains_keyword(text, kw)]
-    unique_matches = len(set(matched_keywords))
-    total_keywords = len(keywords)
-    target_matches_for_full_score = 3
-    coverage = min(1.0, unique_matches / target_matches_for_full_score) if total_keywords else 0.0
-    return {
-        "coverage": coverage,
-        "matched": float(unique_matches),
-        "total": float(total_keywords),
-    }
+def _get_model() -> SentenceTransformer:
+    global _model
+    if _model is None:
+        _model = SentenceTransformer(_EMBEDDING_MODEL_NAME)
+    return _model
+
+
+def _to_unit_interval(value: float) -> float:
+    return float(max(0.0, min(1.0, (value + 1.0) / 2.0)))
+
+
+def _concept_similarity_scores(response_text: str, rubric: AccuracyRubric) -> Tuple[float, float, float]:
+    model = _get_model()
+
+    gold_sentences = [
+        rubric.confidential_information,
+        rubric.obligations_receiving_party,
+        rubric.governing_law,
+    ]
+
+    response_embedding = model.encode([response_text], normalize_embeddings=True)
+    gold_embeddings = model.encode(gold_sentences, normalize_embeddings=True)
+
+    similarities = cosine_similarity(response_embedding, gold_embeddings)[0]
+    return tuple(_to_unit_interval(score) for score in similarities)
 
 
 def score_nda_summary(response_text: str, rubric: AccuracyRubric | None = None) -> Dict[str, float]:
-    """
-    Score whether a generated NDA summary covers the 3 required concepts.
-
-    The score is transparent and demo-friendly for classroom settings:
-      - Each concept gets a coverage score in [0,1] based on matched rubric keywords
-      - Coverage saturates at 1.0 once 3+ concept keywords are matched
-      - Overall accuracy is the mean of the 3 concept coverage scores
-    """
+    """Score NDA summary quality by semantic similarity to concept gold standards."""
     rubric = rubric or default_rubric()
-    response_lower = response_text.lower()
 
-    concept_keywords = {
-        "confidential_information": rubric.confidential_information,
-        "obligations_receiving_party": rubric.obligations_receiving_party,
-        "governing_law": rubric.governing_law,
-    }
+    confidential_score, obligations_score, governing_law_score = _concept_similarity_scores(response_text, rubric)
 
-    per_concept = {}
-    per_concept_matched = {}
-    per_concept_total = {}
-    for concept, keywords in concept_keywords.items():
-        coverage = _concept_coverage(response_lower, keywords)
-        per_concept[concept] = coverage["coverage"]
-        per_concept_matched[f"{concept}_matched_keywords"] = coverage["matched"]
-        per_concept_total[f"{concept}_total_keywords"] = coverage["total"]
+    overall = float((confidential_score + obligations_score + governing_law_score) / 3.0)
 
-    overall = sum(per_concept.values()) / len(per_concept)
-
+    # Keep legacy keys for CSV compatibility in run_benchmark.py.
     return {
         "accuracy": overall,
-        **{f"{k}_score": v for k, v in per_concept.items()},
-        **per_concept_matched,
-        **per_concept_total,
+        "confidential_information_score": confidential_score,
+        "obligations_receiving_party_score": obligations_score,
+        "governing_law_score": governing_law_score,
+        "confidential_information_matched_keywords": confidential_score * 100.0,
+        "obligations_receiving_party_matched_keywords": obligations_score * 100.0,
+        "governing_law_matched_keywords": governing_law_score * 100.0,
+        "confidential_information_total_keywords": 100.0,
+        "obligations_receiving_party_total_keywords": 100.0,
+        "governing_law_total_keywords": 100.0,
     }

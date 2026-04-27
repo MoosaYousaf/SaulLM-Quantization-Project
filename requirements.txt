@@ -8,6 +8,10 @@ accelerate>=0.24.1
 # Quantization Engine (Crucial for 8-bit & 4-bit)
 bitsandbytes>=0.41.1
 
+# Semantic evaluation
+sentence-transformers>=2.7.0
+scikit-learn>=1.3.0
+
 # Notebook analysis + charting
 pandas>=2.0.0
 matplotlib>=3.7.0

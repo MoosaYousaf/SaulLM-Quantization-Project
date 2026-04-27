@@ -4,7 +4,7 @@ This project benchmarks and demonstrates quantized inference for **`Equall/Saul-
 
 It now provides, in one run:
 - **Telemetry/latency** per stage: pre-processing, inference, post-processing.
-- **Accuracy scores** for each precision mode (`16-bit` FP16, `8-bit`, `4-bit`) using a transparent NDA concept rubric.
+- **Accuracy scores** for each precision mode (`16-bit` FP16, `8-bit`, `4-bit`) using semantic similarity against NDA concept gold standards.
 - **Demo outputs** (actual generated summaries) for professor presentation.
 
 ---
@@ -59,13 +59,13 @@ From repository root:
 python scripts/run_benchmark.py --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 
 # Colab T4 run including 16-bit baseline with stronger FP16 offload safeguards
-python scripts/run_benchmark.py --precisions 4-bit,8-bit,16-bit --max-new-tokens 96 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
+python scripts/run_benchmark.py --precisions 4-bit,8-bit,16-bit --max-new-tokens 256 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 
 # Optional professor-demo quick run (4-bit only)
-python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 96 --max-input-tokens 2048 --max-gpu-memory 12GiB
+python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 256 --max-input-tokens 2048 --max-gpu-memory 12GiB
 
 # Optional 16-bit baseline attempt with stronger offload
-python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 96 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
+python scripts/run_benchmark.py --precisions 16-bit --max-new-tokens 256 --max-input-tokens 1536 --max-gpu-memory 12GiB --max-cpu-memory 64GiB --fp16-gpu-memory 8GiB --fp16-retry-gpu-memory 6GiB
 ```
 
 Generated artifacts:
@@ -91,7 +91,7 @@ Generated artifacts:
 ### If Colab still crashes or hangs on load
 1. Restart runtime and run only one benchmark command per session.
 2. Verify free GPU memory before starting: `!nvidia-smi`.
-3. Start with 4-bit only: `python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 64 --max-input-tokens 1536 --max-gpu-memory 12GiB`.
+3. Start with 4-bit only: `python scripts/run_benchmark.py --precisions 4-bit --max-new-tokens 256 --max-input-tokens 1536 --max-gpu-memory 12GiB`.
 4. Then run 8-bit separately. Run 16-bit baseline last (or skip on T4 if unstable).
 
 ---
@@ -113,8 +113,8 @@ Notebook flow:
 ### Accuracy log columns explained
 - `Accuracy`: overall score = mean of the three concept scores.
 - `ConfidentialInformationScore`, `ObligationsScore`, `GoverningLawScore`: per-concept coverage scores in `[0,1]`.
-- `*MatchedKeywords`: how many rubric keywords for that concept were found in the generated text.
-- `*TotalKeywords`: denominator used for that concept's coverage score.
+- `*MatchedKeywords`: compatibility field representing concept semantic similarity as a percentage (0-100).
+- `*TotalKeywords`: compatibility denominator fixed at `100` for the semantic percentage scale.
 - `Error`: populated only when a run fails (`oom` or `error` status).
 
 ---
@@ -138,12 +138,12 @@ Each benchmark run measures:
 `src/data/prompt_pipeline.py` reads `src/data/raw_documents/mock_nda.txt` and wraps instruction + document into a Mistral-style `[INST] ... [/INST]` prompt.
 
 ### Accuracy metric
-`src/evaluation/accuracy.py` implements a rubric-based score for three required NDA concepts:
+`src/evaluation/accuracy.py` implements a semantic-similarity score (Sentence-Transformers) for three required NDA concepts:
 1. Confidential information definition,
 2. Receiving-party obligations,
 3. Governing law.
 
-Each concept gets 1.0 if detected in output; final accuracy is the average over the 3 concepts.
+Each concept receives a cosine-similarity-based score in `[0,1]`; final accuracy is the average over the 3 concept scores.
 
 ---
 
@@ -173,7 +173,7 @@ In most transformer generation workloads, **inference stage** should dominate la
 You can discuss improvements along these axes:
 - **Speed**: quantization, smaller `max_new_tokens`, batching strategies.
 - **Memory/model size**: 8-bit/4-bit deployment.
-- **Accuracy**: prompt engineering, post-processing guards, better rubric/eval sets.
+- **Accuracy**: prompt engineering, post-processing guards, better prompts and richer semantic evaluation sets.
 - **Cost**: choosing precision mode per hardware budget.
 
 ---
