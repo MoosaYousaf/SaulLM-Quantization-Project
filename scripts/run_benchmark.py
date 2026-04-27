@@ -29,7 +29,7 @@ PRECISION_ORDER = {"4-bit": 0, "8-bit": 1, "16-bit": 2}
 
 
 def _normalize_precision_name(raw_precision: str) -> str:
-    normalized = raw_precision.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    normalized = raw_precision.strip().lower().replace("_", "").replace(" ", "")
     aliases = {
         "4bit": "4-bit",
         "8bit": "8-bit",
