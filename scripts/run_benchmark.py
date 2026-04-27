@@ -374,7 +374,7 @@ def run_all_benchmarks(
                     f"law={item['governing_law_score']:.1f}\n"
                 )
                 txt_file.write(
-                    "KEYWORD MATCHES: "
+                    "SEMANTIC MATCH (%): "
                     f"confidential={item['confidential_information_matched_keywords']}/{item['confidential_information_total_keywords']}, "
                     f"obligations={item['obligations_receiving_party_matched_keywords']}/{item['obligations_receiving_party_total_keywords']}, "
                     f"law={item['governing_law_matched_keywords']}/{item['governing_law_total_keywords']}\n"
@@ -408,7 +408,7 @@ def parse_args() -> argparse.Namespace:
         default="4-bit,8-bit,16-bit",
         help="Comma-separated precisions to run. Run order is always 4-bit -> 8-bit -> 16-bit.",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=96, help="Max generated tokens per run.")
+    parser.add_argument("--max-new-tokens", type=int, default=256, help="Max generated tokens per run.")
     parser.add_argument("--max-input-tokens", type=int, default=2048, help="Tokenizer truncation cap for input prompt.")
     parser.add_argument("--max-gpu-memory", default="12GiB", help="GPU memory cap for placement.")
     parser.add_argument("--max-cpu-memory", default="48GiB", help="CPU RAM cap for offloading.")
