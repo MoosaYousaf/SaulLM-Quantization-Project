@@ -15,9 +15,12 @@ def format_legal_prompt(filepath: str) -> str:
         
     # Define specific task for AI to perform on the document
     instruction = (
-        "You are an expert legal AI assistant. Please review the following Mutual Non-Disclosure Agreement. "
-        "Provide a concise summary outlining: 1) What constitutes Confidential Information, "
-        "2) The core obligations of the Receiving Party, and 3) The governing law."
+        "You are an expert legal AI assistant. Review the following Mutual Non-Disclosure Agreement and return "
+        "exactly 3 bullet points in this order and with these headings:\n"
+        "- Confidential Information:\n"
+        "- Receiving Party Obligations:\n"
+        "- Governing Law:\n"
+        "Each bullet must be one sentence, under 25 words, and explicitly mention the key clause details."
     )
     
     # Construct Mistral-compliant prompt structure

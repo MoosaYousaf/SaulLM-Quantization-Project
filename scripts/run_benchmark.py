@@ -24,7 +24,22 @@ RESPONSES_TXT_FILE = "outputs/demo_responses.txt"
 RESPONSES_JSON_FILE = "outputs/demo_responses.json"
 DEFAULT_MODEL_ID = "Equall/Saul-7B-Instruct-v1"
 
-PRECISION_TO_LOADER = {"baseline": "fp16", "8-bit": "8bit", "4-bit": "4bit"}
+PRECISION_TO_LOADER = {"baseline": "fp16", "16-bit": "fp16", "8-bit": "8bit", "4-bit": "4bit"}
+PRECISION_ORDER = {"4-bit": 0, "8-bit": 1, "16-bit": 2}
+
+
+def _normalize_precision_name(raw_precision: str) -> str:
+    normalized = raw_precision.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    aliases = {
+        "4bit": "4-bit",
+        "8bit": "8-bit",
+        "16bit": "16-bit",
+        "fp16": "16-bit",
+        "baseline": "16-bit",
+    }
+    if normalized not in aliases:
+        raise ValueError(f"Unsupported precision '{raw_precision}'. Use one of: 4-bit, 8-bit, 16-bit (or baseline/fp16).")
+    return aliases[normalized]
 
 
 def _wipe_memory() -> None:
@@ -61,6 +76,7 @@ def benchmark_model(
     precision: str,
     prompt: str,
     max_new_tokens: int,
+    max_input_tokens: int,
     max_memory: Dict,
     offload_folder: str,
 ) -> Tuple[Dict[str, Dict[str, float]], str]:
@@ -68,10 +84,11 @@ def benchmark_model(
     tracker = PerformanceTracker()
 
     print(f"\n[{precision.upper()}] Loading tokenizer and model...", flush=True)
+    device_map = {"": 0} if torch.cuda.is_available() and precision in {"4-bit", "8-bit"} else "auto"
     model, tokenizer = load_model_and_tokenizer(
         model_id=model_id,
         precision=PRECISION_TO_LOADER[precision],
-        device_map="auto",
+        device_map=device_map,
         max_memory=max_memory,
         offload_folder=offload_folder,
     )
@@ -80,7 +97,7 @@ def benchmark_model(
 
     tracker.start_phase("pre_processing")
     input_device = _get_device_for_inputs(model)
-    inputs = tokenizer(prompt, return_tensors="pt").to(input_device)
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens).to(input_device)
     tracker.end_phase()
 
     tracker.start_phase("inference")
@@ -111,6 +128,7 @@ def run_all_benchmarks(
     model_id: str,
     precisions: List[str],
     max_new_tokens: int,
+    max_input_tokens: int,
     max_gpu_memory: str,
     max_cpu_memory: str,
     offload_folder: str,
@@ -148,6 +166,7 @@ def run_all_benchmarks(
                     precision=prec,
                     prompt=prompt,
                     max_new_tokens=max_new_tokens,
+                    max_input_tokens=max_input_tokens,
                     max_memory=max_memory,
                     offload_folder=offload_folder,
                 )
@@ -195,6 +214,16 @@ def run_all_benchmarks(
                 all_outputs.append({"precision": prec, "status": "oom", "accuracy": None, "response": "", "error": message})
                 _wipe_memory()
                 continue
+            except Exception as run_error:
+                message = str(run_error).replace("\n", " ")
+                print(f"❌ [{prec}] Failed: {message}", flush=True)
+                latency_writer.writerow([prec, "error", "pre_processing", "", ""])
+                latency_writer.writerow([prec, "error", "inference", "", ""])
+                latency_writer.writerow([prec, "error", "post_processing", "", ""])
+                accuracy_writer.writerow([prec, "error", "", "", "", "", message])
+                all_outputs.append({"precision": prec, "status": "error", "accuracy": None, "response": "", "error": message})
+                _wipe_memory()
+                continue
             except KeyboardInterrupt:
                 print(f"⚠️ Interrupted during precision '{prec}'. Writing partial outputs before exit.", flush=True)
                 break
@@ -238,10 +267,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID, help="HF model id to benchmark.")
     parser.add_argument(
         "--precisions",
-        default="4-bit,8-bit,baseline",
-        help="Comma-separated precisions to run. Example: '4-bit,8-bit' for Colab T4-safe run.",
+        default="4-bit,8-bit,16-bit",
+        help="Comma-separated precisions to run. Run order is always 4-bit -> 8-bit -> 16-bit.",
     )
     parser.add_argument("--max-new-tokens", type=int, default=96, help="Max generated tokens per run.")
+    parser.add_argument("--max-input-tokens", type=int, default=2048, help="Tokenizer truncation cap for input prompt.")
     parser.add_argument("--max-gpu-memory", default="12GiB", help="GPU memory cap for placement.")
     parser.add_argument("--max-cpu-memory", default="48GiB", help="CPU RAM cap for offloading.")
     parser.add_argument("--offload-folder", default="offload", help="Folder for CPU/disk offloaded weights.")
@@ -250,16 +280,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    precisions = [p.strip() for p in args.precisions.split(",") if p.strip()]
-
-    invalid = [p for p in precisions if p not in PRECISION_TO_LOADER]
-    if invalid:
-        raise ValueError(f"Unsupported precision(s): {invalid}. Valid values: {list(PRECISION_TO_LOADER)}")
+    normalized_precisions = [_normalize_precision_name(p) for p in args.precisions.split(",") if p.strip()]
+    precisions = sorted(set(normalized_precisions), key=lambda p: PRECISION_ORDER[p])
+    print(f"🔁 Precision run order: {', '.join(precisions)}", flush=True)
 
     run_all_benchmarks(
         model_id=args.model_id,
         precisions=precisions,
         max_new_tokens=args.max_new_tokens,
+        max_input_tokens=args.max_input_tokens,
         max_gpu_memory=args.max_gpu_memory,
         max_cpu_memory=args.max_cpu_memory,
         offload_folder=args.offload_folder,

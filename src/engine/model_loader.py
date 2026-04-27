@@ -11,6 +11,10 @@ SYSTEM_PROMPT = (
 )
 
 
+def _resolve_hf_token():
+    return os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_HUB_TOKEN")
+
+
 def get_8bit_config():
     return BitsAndBytesConfig(
         load_in_8bit=True,
@@ -58,7 +62,12 @@ def _common_model_kwargs(
 
 
 def load_tokenizer(model_id=MODEL_ID):
-    tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_id,
+        use_fast=True,
+        trust_remote_code=True,
+        token=_resolve_hf_token(),
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
@@ -69,7 +78,8 @@ def load_fp16(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_fol
     tokenizer = load_tokenizer(model_id)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
+        token=_resolve_hf_token(),
         **_common_model_kwargs(
             device_map=device_map,
             max_memory=max_memory,
@@ -89,7 +99,8 @@ def load_8bit(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_fol
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=get_8bit_config(),
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
+        token=_resolve_hf_token(),
         **_common_model_kwargs(
             device_map=device_map,
             max_memory=max_memory,
@@ -109,7 +120,8 @@ def load_4bit(model_id=MODEL_ID, device_map="auto", max_memory=None, offload_fol
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=get_4bit_config(),
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
+        token=_resolve_hf_token(),
         **_common_model_kwargs(
             device_map=device_map,
             max_memory=max_memory,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Dict, List
 
@@ -17,26 +18,40 @@ def default_rubric() -> AccuracyRubric:
     return AccuracyRubric(
         confidential_information=[
             "confidential information",
+            "confidential",
             "source code",
             "proprietary",
             "public domain",
             "technical and non-technical",
+            "technical",
         ],
         obligations_receiving_party=[
+            "receiving party",
             "strict confidence",
+            "strictest confidence",
             "restrict access",
             "not disclose",
             "not publish",
             "not copy",
             "sole and exclusive benefit",
+            "obligations",
         ],
         governing_law=[
             "governed by",
+            "governing",
             "state of georgia",
             "governing law",
             "conflict of law",
+            "law",
         ],
     )
+
+
+def _contains_keyword(text: str, keyword: str) -> bool:
+    escaped = re.escape(keyword.lower())
+    if " " in keyword:
+        return keyword.lower() in text
+    return re.search(rf"\b{escaped}\w*\b", text) is not None
 
 
 def score_nda_summary(response_text: str, rubric: AccuracyRubric | None = None) -> Dict[str, float]:
@@ -58,7 +73,7 @@ def score_nda_summary(response_text: str, rubric: AccuracyRubric | None = None) 
 
     per_concept = {}
     for concept, keywords in concept_keywords.items():
-        matched = any(keyword in response_lower for keyword in keywords)
+        matched = any(_contains_keyword(response_lower, keyword) for keyword in keywords)
         per_concept[concept] = 1.0 if matched else 0.0
 
     overall = sum(per_concept.values()) / len(per_concept)
