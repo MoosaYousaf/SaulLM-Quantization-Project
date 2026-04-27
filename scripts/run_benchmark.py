@@ -155,7 +155,21 @@ def run_all_benchmarks(
 
         latency_writer.writerow(["Precision", "Status", "Phase", "Time_sec", "Peak_Memory_MB"])
         accuracy_writer.writerow(
-            ["Precision", "Status", "Accuracy", "ConfidentialInformationScore", "ObligationsScore", "GoverningLawScore", "Error"]
+            [
+                "Precision",
+                "Status",
+                "Accuracy",
+                "ConfidentialInformationScore",
+                "ObligationsScore",
+                "GoverningLawScore",
+                "ConfidentialMatchedKeywords",
+                "ObligationsMatchedKeywords",
+                "GoverningLawMatchedKeywords",
+                "ConfidentialTotalKeywords",
+                "ObligationsTotalKeywords",
+                "GoverningLawTotalKeywords",
+                "Error",
+            ]
         )
 
         for prec in precisions:
@@ -184,6 +198,12 @@ def run_all_benchmarks(
                         f"{accuracy['confidential_information_score']:.4f}",
                         f"{accuracy['obligations_receiving_party_score']:.4f}",
                         f"{accuracy['governing_law_score']:.4f}",
+                        f"{accuracy['confidential_information_matched_keywords']:.0f}",
+                        f"{accuracy['obligations_receiving_party_matched_keywords']:.0f}",
+                        f"{accuracy['governing_law_matched_keywords']:.0f}",
+                        f"{accuracy['confidential_information_total_keywords']:.0f}",
+                        f"{accuracy['obligations_receiving_party_total_keywords']:.0f}",
+                        f"{accuracy['governing_law_total_keywords']:.0f}",
                         "",
                     ]
                 )
@@ -196,6 +216,14 @@ def run_all_benchmarks(
                         "confidential_information_score": accuracy["confidential_information_score"],
                         "obligations_receiving_party_score": accuracy["obligations_receiving_party_score"],
                         "governing_law_score": accuracy["governing_law_score"],
+                        "confidential_information_matched_keywords": int(accuracy["confidential_information_matched_keywords"]),
+                        "obligations_receiving_party_matched_keywords": int(
+                            accuracy["obligations_receiving_party_matched_keywords"]
+                        ),
+                        "governing_law_matched_keywords": int(accuracy["governing_law_matched_keywords"]),
+                        "confidential_information_total_keywords": int(accuracy["confidential_information_total_keywords"]),
+                        "obligations_receiving_party_total_keywords": int(accuracy["obligations_receiving_party_total_keywords"]),
+                        "governing_law_total_keywords": int(accuracy["governing_law_total_keywords"]),
                         "response": response_text,
                     }
                 )
@@ -209,7 +237,7 @@ def run_all_benchmarks(
                 latency_writer.writerow([prec, "oom", "pre_processing", "", ""])
                 latency_writer.writerow([prec, "oom", "inference", "", ""])
                 latency_writer.writerow([prec, "oom", "post_processing", "", ""])
-                accuracy_writer.writerow([prec, "oom", "", "", "", "", message])
+                accuracy_writer.writerow([prec, "oom", "", "", "", "", "", "", "", "", "", "", message])
 
                 all_outputs.append({"precision": prec, "status": "oom", "accuracy": None, "response": "", "error": message})
                 _wipe_memory()
@@ -220,7 +248,7 @@ def run_all_benchmarks(
                 latency_writer.writerow([prec, "error", "pre_processing", "", ""])
                 latency_writer.writerow([prec, "error", "inference", "", ""])
                 latency_writer.writerow([prec, "error", "post_processing", "", ""])
-                accuracy_writer.writerow([prec, "error", "", "", "", "", message])
+                accuracy_writer.writerow([prec, "error", "", "", "", "", "", "", "", "", "", "", message])
                 all_outputs.append({"precision": prec, "status": "error", "accuracy": None, "response": "", "error": message})
                 _wipe_memory()
                 continue
@@ -240,6 +268,12 @@ def run_all_benchmarks(
                     f"confidential={item['confidential_information_score']:.1f}, "
                     f"obligations={item['obligations_receiving_party_score']:.1f}, "
                     f"law={item['governing_law_score']:.1f}\n"
+                )
+                txt_file.write(
+                    "KEYWORD MATCHES: "
+                    f"confidential={item['confidential_information_matched_keywords']}/{item['confidential_information_total_keywords']}, "
+                    f"obligations={item['obligations_receiving_party_matched_keywords']}/{item['obligations_receiving_party_total_keywords']}, "
+                    f"law={item['governing_law_matched_keywords']}/{item['governing_law_total_keywords']}\n"
                 )
                 txt_file.write("RESPONSE:\n")
                 txt_file.write(item["response"] + "\n\n")

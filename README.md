@@ -106,7 +106,15 @@ Notebook flow:
 3. run benchmark script,
 4. display latency and accuracy tables,
 5. plot latency chart,
-6. print model responses for each precision.
+6. print model responses for each precision,
+7. optional architecture profiler output (for model-structure/parameter reporting).
+
+### Accuracy log columns explained
+- `Accuracy`: overall score = mean of the three concept scores.
+- `ConfidentialInformationScore`, `ObligationsScore`, `GoverningLawScore`: per-concept coverage scores in `[0,1]`.
+- `*MatchedKeywords`: how many rubric keywords for that concept were found in the generated text.
+- `*TotalKeywords`: denominator used for that concept's coverage score.
+- `Error`: populated only when a run fails (`oom` or `error` status).
 
 ---
 
